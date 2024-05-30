@@ -55,13 +55,13 @@ class ShapenetDataset(Dataset):
             # get train, valid, test splits from json files
             if self.split == 'train':
                 split_file = os.path.join(self.root, 
-                    r'train_test_split\shuffled_train_file_list.json')
+                    r'train_test_split/shuffled_train_file_list.json')
             elif self.split == 'test':
                 split_file = os.path.join(self.root, 
-                    r'train_test_split\shuffled_test_file_list.json')
+                    r'train_test_split/shuffled_test_file_list.json')
             elif (self.split == 'valid') or (self.split == 'val'):
                 split_file = os.path.join(self.root, 
-                    r'train_test_split\shuffled_val_file_list.json')
+                    r'train_test_split/shuffled_val_file_list.json')
                 
             with open(split_file, 'r') as f:
                 split_data = json.load(f)
@@ -117,16 +117,30 @@ class ShapenetDataset(Dataset):
         
         # Read the Segmentation Image
         image = Image.open(fn[3])
-        
-        # down sample the pont cloud
-        if len(seg) > self.npoints:
-            choice = np.random.choice(len(seg), self.npoints, replace=False)
-        else:
-            # case when there are less points than the desired number
-            choice = np.random.choice(len(seg), self.npoints, replace=True)
 
-        point_set = point_set[choice, :]        
-        seg = seg[choice]
+        
+        # Normalize Point Cloud to (0, 1)
+        # if self.normalize:
+        #     point_set = self.normalize_points(point_set)
+        
+            
+        # Set Occlusion(x>0.5)
+        # mask = point_set[:, 0] >= 0.5
+        # point_set = point_set[mask]
+        # seg = seg[mask]
+        # print("points number(after occlusion):",point_set.shape)
+        
+        # down sample the point cloud(make sure every sample has npoints)
+      
+        # print("points number(before occlusion):",point_set.shape)      
+      
+        
+        # if self.normalize:
+        #     point_set = self.normalize_points(point_set)
+        # min_coords = np.min(point_set, axis=0)
+        # max_coords = np.max(point_set, axis=0)
+        # print(f"Min coordinates1: {min_coords}")
+        # print(f"Max coordinates1: {max_coords}")
         point_set = torch.from_numpy(point_set)
         seg = torch.from_numpy(seg)
         cls_ = torch.from_numpy(np.array([cls_]).astype(np.int64))
@@ -138,10 +152,52 @@ class ShapenetDataset(Dataset):
 
             # add random rotation to the point cloud
             point_set = self.random_rotate(point_set)
-
-        # Normalize Point Cloud to (0, 1)
+            # min_coords = torch.min(point_set, dim=0)[0]
+            # max_coords = torch.max(point_set, dim=0)[0]
+            # print(f"Min coordinates: {min_coords}")
+            # print(f"Max coordinates: {max_coords}")
+            # print(point_set.shape)
+              
+            # point_set = point_set[selected_idx]
+            # mask = point_set[:, 0] >= 0.5
+            # print(mask[].shape, mask[:4])
+            # num_true_values = mask.sum().item()
+            # print(f"Number of True values in the mask: {num_true_values}")
+            # point_set = point_set[mask]
+            # seg = seg[mask]
+            # print("points number(after occlusion):",point_set.shape)
+            
+            
         if self.normalize:
             point_set = self.normalize_points(point_set)
+            
+            if self.split != 'test':
+                # occlusion
+                mask = (point_set[:, 0].eq(0.25) | point_set[:, 0].gt(0.25))
+                # print(mask.shape)
+                selected_idx = torch.tensor([i for i, x in enumerate(mask) if x], dtype=torch.int64)
+                point_set = torch.index_select(point_set, 0, selected_idx)
+                # print("points number(after occlusion):",point_set.shape)
+                
+        # down sample the point cloud(make sure every sample has npoints)
+        if point_set.shape[0] > self.npoints:#down-sampling
+            # choice = np.random.choice(point_set.shape[0], self.npoints, replace=False)
+            choice = torch.randperm(point_set.shape[0])[:self.npoints]
+        else:
+            # case when there are less points than the desired number, up-sampling
+            # choice = np.random.choice(point_set.shape[0], self.npoints, replace=True)
+            choice = torch.randint(0, point_set.shape[0], (self.npoints,), dtype=torch.long)
+
+        point_set = point_set[choice, :]        
+        seg = seg[choice]
+        # # Normalize Point Cloud to (0, 1)
+        # if self.normalize:
+        #     point_set = self.normalize_points(point_set)
+        # min_coords = torch.min(point_set, dim=0)[0]
+        # max_coords = torch.max(point_set, dim=0)[0]
+        # print(f"Min coordinates1: {min_coords}")
+        # print(f"Max coordinates1: {max_coords}")
+        
         
         if self.classification:
             if self.image:
